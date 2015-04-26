@@ -1,69 +1,82 @@
 /**
- * Builder for messages.
- * @param {object} ws
+ * Convenience builder for messages.
+ *
+ * @return {object}
  */
-define(['./codes'], function(codes) {
-  var Builder = {};
+define([
+  './codes',
+  './Message'
+],
+function(codes, Message) {
+  'use strict';
 
+  var builder = {};
 
   /**
-   * Build and error message object
+   * Build error message object
    * @param  {string} errorCode Error code.
-   * @param  {mixed} err (Option) Error object.
-   * @return {object}
+   * @param  {mixed} exception (Optionial) Error string or Error object to
+   * explain the errorCode with more details.
+   * @param  {string} _id (Optionial)
+   * @return {Message}
    */
-  Builder.composeError = function(errorCode, err, _id) {
-    var obj = {}, error = codes[errorCode];
+  builder.composeError = function(errorCode, exception, _id) {
+    var objMsg = new Message(),
+        error = codes[errorCode];
+
     if (error)
-      obj.error = error;
+      objMsg.setErrorText(error);
 
-    obj.code = errorCode;
+    objMsg.setErrorCode(errorCode);
 
-    if (err instanceof Error) {
-      console.error(err);
-      obj.exception = {
-        'name': err.name,
-        'message': err.message,
-        'stack' : err.stack
-      };
-    } else if (err !== undefined) {
-      obj.exception = err;
+    if (exception instanceof Error) {
+      console.error(exception.stack);
+      objMsg.setException({
+        'name': exception.name,
+        'message': exception.message,
+        'stack' : exception.stack
+      });
+    } else if (exception != null) {
+      objMsg.setException(exception);
     }
 
-    obj._id = _id;
+    if (_id != null)
+      objMsg.setInternalId(_id);
 
-    return obj;
+    return objMsg;
   };
 
 
   /**
-   * Build and standard result message.
+   * Build standard result message.
    * @param  {object} resultParam
-   * @return {object}
+   * @param  {string} _id
+   * @return {Message}
    */
-  Builder.composeResult = function(resultParam, _id) {
-    return {
-      result: resultParam,
-      _id: _id
-    };
+  builder.composeResult = function(resultParam, _id) {
+    return new Message()
+      .setResult(resultParam)
+      .setInternalId(_id);
   };
 
 
   /**
-   * Build and standard result message.
-   * @param  {object} resultParam
-   * @return {object}
+   * Build standard RPC message.
+   * @param  {string} methodName
+   * @param  {string} _id
+   * @param  {mixed} args
+   * @return {Message}
    */
-  Builder.composeExecution = function(method, args, _id) {
-    if (!Array.isArray(args))
-      args = [args];
+  builder.composeExecution = function(methodName, _id, args) {
+    var msg = new Message()
+      .setExecutionMethodName(methodName)
+      .setInternalId(_id);
 
-    return {
-      _execute: method,
-      _arguments: args,
-      _id: _id
-    };
+    if (args !== undefined)
+      msg.setExecutionArguments(args);
+
+    return msg;
   };
 
-  return Builder;
+  return builder;
 });

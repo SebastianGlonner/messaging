@@ -1,91 +1,137 @@
+/**
+ * Client wrapper for WebSocket's providing remote procedure call pattern.
+ *
+ * @return {Client}
+ */
 define([
   './builder',
-  './Serializer',
-  './Parser'
+  './Message'
 ],
-function(builder, serializer, parser) {
+function(builder, Message) {
+  'use strict';
 
   /**
-   * [exports description]
-   * @param {object} ws
+   * Constructor.
    */
   var Client = function() {
     this.counter = 0;
-    this.messages = [];
+    this.messages = {};
   };
 
+  var _prototype = Client.prototype;
+
+
+  /**
+   * Dynamic function adding listener to the WebSocket client for the
+   * "message" event in dependence of the implementation (Node, Browser).
+   * @type {[type]}
+   */
   var addMessageListener;
   if (typeof WebSocket === 'function') {
-    Client.prototype.WebSocketClazz = WebSocket;
-    addMessageListener = function(instance, ws) {
-      ws.onmessage = this.applyResponse.bind(instance);
+    _prototype.__WebSocketClazz = WebSocket;
+    addMessageListener = function(_this, webSocket) {
+      webSocket.onmessage = this.__invokeResponseListener.bind(_this);
     };
+
+  } else {
+    _prototype.__WebSocketClazz = require('ws');
+    addMessageListener = function(_this, webSocket) {
+      webSocket.on('message', function(message, flag) {
+        if (flag && flag.binary)
+          throw new Error('Binary messages are not supported yet!');
+
+        this.__invokeResponseListener(message);
+      }.bind(_this));
+    };
+
   }
-  else if (typeof require === 'function') {
-    Client.prototype.WebSocketClazz = require('ws');
-    addMessageListener = function(instance, ws) {
-      ws.on('message', function(message) {
-        try {
-          instance.applyResponse(message);
-        } catch (e) {
-          console.log('callee send error: ' + e + '\n' + e.stack);
-        }
-      });
-    };
+  _prototype.__addMessageListener = addMessageListener;
 
-  } else
-    throw Error('Can not detect WebSocket class in your environment!');
 
-  Client.prototype.addMessageListener = addMessageListener;
-
-  Client.prototype.listen = function(ws) {
-    this.ws = ws;
-    this.addMessageListener(this, ws);
-  };
-
-  Client.prototype.createConnection = function(url) {
-    var ws = new this.WebSocketClazz(url);
-    this.listen(ws);
-    return ws;
+  /**
+   * Start listening for the given websocket messages.
+   * @param  {WebSocket} webSocket
+   */
+  _prototype.__listenToWebsockets = function(webSocket) {
+    this.webSocket = webSocket;
+    this.__addMessageListener(this, webSocket);
   };
 
 
-  Client.prototype.execute = function(method, args) {
-    var ws = this.ws;
-    var counter = this.counter++;
-    var self = this;
+  /**
+   * Create a connection to a WebSocket server.
+   * @param  {string} url
+   * @return {WebSocket}
+   */
+  _prototype.__createConnection = function(url) {
+    var webSocket = new this.__WebSocketClazz(url);
+    this.__listenToWebsockets(webSocket);
+    return webSocket;
+  };
 
-    var promise = new Promise(function(resolve, reject) {
-      var message = builder.composeExecution(method, args, counter);
-      message = serializer.serialize(message);
+
+  /**
+   * Execute a remote method by sending an appropriate message and waiting
+   * for the respective response.
+   * @param  {string} method Remote method name.
+   * @param  {array} args Remote method arguments
+   * @return {Promise}
+   */
+  _prototype.__execute = function(method, args) {
+    var webSocket = this.webSocket;
+    var counter = ++this.counter;
+    var _this = this;
+
+    return new Promise(function(resolve, reject) {
       try {
-        self.listenForResponse(counter, function(response) {
-          resolve(response);
+        var objMsg = builder.composeExecution(method, counter, args);
+        _this.__listenForResponse(counter, function(error, result) {
+          if (error)
+            reject(error);
+          else
+            resolve(result);
         });
-        ws.send(message);
+        webSocket.send(objMsg.toPlain());
       } catch (e) {
-        console.log('Client send error: ' + e);
+        console.error(e.stack);
       }
     });
-
-    return promise;
   };
 
-  Client.prototype.listenForResponse = function(counter, callback) {
+
+  /**
+   * Add listener callback for a specific RPC.
+   * @param  {integer}  counter
+   * @param  {Function} callback
+   */
+  _prototype.__listenForResponse = function(counter, callback) {
     this.messages[counter] = callback;
   };
 
-  Client.prototype.applyResponse = function(response) {
-    if (typeof response === 'object' && response.data)
-      response = response.data;
 
-    response = parser.parse(response);
+  /**
+   * Invoke the response listener for a specifc RPC.
+   *
+   * @param  {string} response The WebSocket message representing an response
+   * for an specific RPC.
+   */
+  _prototype.__invokeResponseListener = function(response) {
+    response = Message.fromPlain(response);
+    var id = response.getInternalId();
 
-    if (response._id === undefined) {
-      throw new Error('Invalid message: Missing required "_id"');
+    if (id === undefined) {
+      throw new Error('Invalid message. Missing required "_id"');
     }
 
-    this.messages[response._id](response);
+    var invokee = this.messages[id];
+    if (invokee === undefined)
+      throw new Error('Invalid invokee id. Can not invoke message with id: ' + id);
+
+    this.messages[id] = undefined;
+    invokee(
+        response.getErrorText() ? response : undefined,
+        response.getResult()
+    );
   };
 
   return Client;

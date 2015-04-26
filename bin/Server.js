@@ -1,34 +1,47 @@
 /**
- * Node.js only module!
+ * WebSocketServer wrapper handling incomming messages by invoking the
+ * appropriate given methods and sending a response message (RPC).
  *
- * @type {[type]}
- */
-
-/**
- *
+ * @return {Server}
  */
 define([
   './Builder',
-  './Codes',
-  './Serializer',
-  './Parser'
+  './Message'
 ],
-function(builder, errorCodes, serializer, parser) {
+function(builder, Message) {
+  'use strict';
+
 
   /**
-   * [exports description]
-   * @param {object} ws
+   * Constructor.
+   * @param {object} methods The methods which will be callable remotely by
+   * clients.
    */
-  var Server = function() {};
+  var Server = function(methods) {
+    this.methods = methods;
+  };
 
-  Server.prototype.listen = function(ws) {
-    this.ws = ws;
+
+  /**
+   * Start listening for the messages of a sepecific WebSocket connection.
+   *
+   * @param  {WebSocket} webSocket
+   * @return {[type]}
+   */
+  Server.prototype.listen = function(webSocket) {
+    this.webSocket = webSocket;
     var self = this;
-    ws.on('message', function(message) {
+    webSocket.on('message', function(plainMessage) {
       try {
-        self.process(message, function(resultMessage) {
-          ws.send(resultMessage);
-        });
+        var objMsg = self.process(plainMessage);
+        if (objMsg instanceof Promise) {
+          objMsg.then(function(objMsg) {
+            webSocket.send(objMsg.toPlain());
+
+          });
+        } else
+          webSocket.send(objMsg.toPlain());
+
       } catch (e) {
         console.log('Server send error: ' + e + '\n' + e.stack);
       }
@@ -36,81 +49,115 @@ function(builder, errorCodes, serializer, parser) {
   };
 
 
+  /**
+   * Cached property of the WebSocketServer class for instantiation.
+   * @type {WebSocketServer}
+   */
   Server.prototype.NodeJsWebSocketServerClazz = require('ws').Server;
 
+
+  /**
+   * Creating a WebSocketServer instance.
+   * @param  {object} cfg
+   * @return {WebSocketServer}
+   */
   Server.prototype.createServer = function(cfg) {
-    this.wss = new this.NodeJsWebSocketServerClazz(cfg);
+    var _this = this,
+        webSocketServer = this.webSocketServer =
+            new this.NodeJsWebSocketServerClazz(cfg);
 
-    this.wss.on('connection', function(serverWs) {
+    webSocketServer.on('connection', function(webSocket) {
       // NOTE: this.wss != serverWs
-      this.listen(serverWs);
-    }.bind(this));
+      _this.listen(webSocket);
+    });
 
-    return this.wss;
+    return webSocketServer;
   };
 
 
-  Server.prototype.process = function(message, sendCallback) {
-    var objMessage = null;
+  /**
+   * Process a plain message by invoking the containing method and sending
+   * a message back with the result of that very method.
+   *
+   * @param  {string} plainMessage
+   * @return {Message}
+   */
+  Server.prototype.process = function(plainMessage) {
+    var objMsg = null,
+        internalId,
+        executionMethodName,
+        executionMethodArgs,
+        parsedArgs,
+        methodFunction,
+        execResult;
 
     try {
-      objMessage = parser.parse(message);
+      objMsg = Message.fromPlain(plainMessage);
     } catch (e) {
-      return serializer.serialize(builder.composeError(1001, e));
+      return builder.composeError(1001, e);
     }
 
-    if (objMessage._execute === undefined) {
-      return serializer.serialize(builder.composeError(1003));
+    internalId = objMsg.getInternalId();
+    if (internalId == null)
+      internalId = undefined;
+
+    executionMethodName = objMsg.getExecutionMethodName();
+
+    if (executionMethodName === undefined) {
+      return builder.composeError(1003, undefined, internalId);
     }
 
-    var handlerFunction = this[objMessage._execute];
+    methodFunction = this.methods[executionMethodName];
 
-    if (handlerFunction === undefined) {
-      return serializer.serialize(builder.composeError(1002));
+    if (typeof methodFunction !== 'function') {
+      return builder.composeError(1002, undefined, internalId);
     }
 
-    var args = [];
-    if (objMessage._arguments !== undefined) {
-      args = objMessage._arguments;
+    executionMethodArgs = objMsg.getExecutionArguments();
+    if (executionMethodArgs !== undefined) {
+      parsedArgs = executionMethodArgs;
+
+      // TODO parse arguments (int, string etc.)
     }
 
-    var mixedResult = handlerFunction.apply(this, args);
+    try {
+      execResult = methodFunction.apply(this, parsedArgs);
 
-    if (mixedResult instanceof Promise) {
-      mixedResult.then(function(functionResult) {
-        sendCallback(
-            serializer.serialize(
-                builder.composeResult(
-                    functionResult,
-                    objMessage._id
-                )
-            )
+      if (execResult instanceof Promise) {
+        return execResult.then(function(functionResult) {
+          return builder.composeResult(
+              functionResult,
+              internalId
+          );
+        }).catch (function(err) {
+          return builder.composeError(
+              5005,
+              err,
+              internalId
+          );
+        });
+      } else {
+        return builder.composeResult(
+            execResult,
+            internalId
         );
-      }).catch (function(err) {
-        sendCallback(
-            serializer.serialize(
-                builder.composeError(
-                    5005,
-                    err,
-                    objMessage._id
-                )
-            )
-        );
-      });
-    } else {
-      sendCallback(
-          serializer.serialize(
-              builder.composeResult(
-                  mixedResult,
-                  objMessage._id
-              )
-          )
+      }
+
+    } catch (e) {
+      return builder.composeError(
+          5005,
+          err,
+          internalId
       );
     }
   };
 
-  Server.prototype.close = function(cfg) {
-    this.wss.close();
+
+  /**
+   * Close this WebSocketServer connection.
+   */
+  Server.prototype.close = function() {
+    this.webSocketServer.close();
   };
 
   return Server;
