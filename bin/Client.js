@@ -23,8 +23,8 @@ function(builder, Message) {
 
   /**
    * Dynamic function adding listener to the WebSocket client for the
-   * "message" event in dependence of the implementation (Node, Browser).
-   * @type {[type]}
+   * "message" event in dependence of the environment (Node, Browser).
+   *
    */
   var addMessageListener;
   if (typeof WebSocket === 'function') {
@@ -125,7 +125,8 @@ function(builder, Message) {
 
     var invokee = this.messages[id];
     if (invokee === undefined)
-      throw new Error('Invalid invokee id. Can not invoke message with id: ' + id);
+      throw new Error('Invalid invokee id. Can not invoke message with id: ' +
+          id);
 
     this.messages[id] = undefined;
     invokee(

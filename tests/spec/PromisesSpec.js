@@ -1,10 +1,11 @@
 describe('Messaging', function() {
 
-  var MESSAGE_COUNT_PER_TEST = 150;
+  var MESSAGE_COUNT_PER_TEST = 1000;
   var MESSAGES_RESPONSE_TIME_INTERVALL_MIN = 1000;
   var MESSAGES_RESPONSE_TIME_INTERVALL_MAX = 5000;
 
-  jasmine.DEFAULT_TIMEOUT_INTERVAL = 3 * MESSAGES_RESPONSE_TIME_INTERVALL_MAX + 1000;
+  jasmine.DEFAULT_TIMEOUT_INTERVAL =
+      3 * MESSAGES_RESPONSE_TIME_INTERVALL_MAX + 2000;
 
   function getRandomTime() {
     return Math.floor(Math.random() * (MESSAGES_RESPONSE_TIME_INTERVALL_MIN -
@@ -18,18 +19,33 @@ describe('Messaging', function() {
 
   beforeAll(function(done) {
     define(['./bin/Endpoint'], function(Endpoint) {
+      //
+      // Defining an endpoint with various methods
+      //
       var endpoint = new Endpoint({
-        someApiMethod: function(figure) {
-          return new Promise(function(resolve, reject) {
-            // fake unorded responses
-            setTimeout(function() {
-              resolve('someApiAnswer' + figure + 'test1');
-            }, getRandomTime());
-          });
-        },
-        someUnPromisedApiMethod: function(figure) {
-          return 'someUnPromisedApiMethod' + figure + 'test2';
-        }
+
+
+        someApiMethod: [
+          function(figure) {
+            return new Promise(function(resolve, reject) {
+              // fake unorded responses
+              setTimeout(function() {
+                resolve('someApiAnswer' + figure + 'test1');
+              }, getRandomTime());
+            });
+          },
+          ['int']
+        ],
+
+
+        someUnPromisedApiMethod: [
+          function(figure) {
+            return 'someUnPromisedApiMethod' + figure + 'test2';
+          },
+          ['int']
+        ]
+
+
       });
 
       serverApi = endpoint.asServer({
@@ -38,10 +54,10 @@ describe('Messaging', function() {
       });
 
       endpoint.asClient({'url': 'ws://localhost:3497'})
-        .then(function(c) {
+          .then(function(c) {
             clientApi = c;
             done();
-        });
+          });
 
     });
   });
@@ -52,6 +68,9 @@ describe('Messaging', function() {
   });
 
   describe('works with promises', function() {
+
+
+
     it('responses asynchron on message', function(done) {
       var res = [];
       var resultCounter = 0;
@@ -80,7 +99,9 @@ describe('Messaging', function() {
 
     });
 
-    it('without return promise on server side', function(done) {
+
+
+    it('without returning promise on server side', function(done) {
       var res = [];
       var resultCounter = 0;
 
@@ -107,6 +128,9 @@ describe('Messaging', function() {
       });
 
     });
+
+
+
   });
 
 });

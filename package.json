@@ -1,9 +1,9 @@
 {
-	"name": "elm",
+	"name": "messaging",
 	"version": "0.0.1",
 
 	"dependencies": {
-		"ws": "0.4.30"
+		"ws": "0.7.2"
 	},
 
 	"devDependencies": {

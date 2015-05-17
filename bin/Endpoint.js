@@ -6,7 +6,8 @@
  */
 define([
   './Client',
-  './Server'
+  './Server',
+  './adapter'
 ],
 function(Client, Server) {
   'use strict';
@@ -71,7 +72,7 @@ function(Client, Server) {
 
 
   /**
-   * Returning a function which will do a remote procedure call for with the
+   * Returning a function which will do a remote procedure call with the
    * given client and method name.
    *
    * @param  {Client} client
@@ -80,9 +81,10 @@ function(Client, Server) {
    */
   _proto._buildClientMethod = function(client, name) {
     return function() {
-      var a = Array.prototype.slice.call(arguments);
-      a.unshift(name);
-      return this.__execute.apply(client, a);
+      return this.__execute.apply(client, [
+        name,
+        Array.prototype.slice.call(arguments)
+      ]);
     }
   };
 

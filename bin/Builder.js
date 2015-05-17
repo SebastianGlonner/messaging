@@ -30,7 +30,6 @@ function(codes, Message) {
     objMsg.setErrorCode(errorCode);
 
     if (exception instanceof Error) {
-      console.error(exception.stack);
       objMsg.setException({
         'name': exception.name,
         'message': exception.message,
